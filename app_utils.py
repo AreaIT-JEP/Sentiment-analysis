@@ -23,10 +23,10 @@ except LookupError:
 # Theme definitions
 THEMES = {
     "light": {
-        "bg": "#033859",      # Change this line
+        "bg": "#192536",      # Change this line
         "fg": "#ffffff",      # Change this line
-        "accent": "#ffffff",  # Change this line
-        "chart_bg": "#033859",# Change this line
+        "accent": "#FFA801",  # Change this line
+        "chart_bg": "#192536",# Change this line
         "text": "#ffffff"     # Change this line
     },
     "dark": {
@@ -80,7 +80,7 @@ class SentimentAnalysisApp:
         """Set up the main user interface."""
         self.root.title("Sentiment Analyzer Pro")
         self.root.geometry("1200x800")
-        self.root.minsize(1000, 700)
+        self.root.minsize(1920, 1080)
         
         # Create menu bar
         self.create_menu()
@@ -285,7 +285,7 @@ class SentimentAnalysisApp:
         table_frame.pack(fill=tk.BOTH, expand=True)
         
         # Create preview table
-        columns = ("Column 1", "Column 2", "Column 3", "Column 4", "Column 5")
+        columns = ("Review Title", "Review", "Star", "Product")
         self.preview_tree = ttk.Treeview(
             table_frame,
             columns=columns,
@@ -569,7 +569,7 @@ class SentimentAnalysisApp:
 
             # Get file size
             file_size = os.path.getsize(filename) / (1024 * 1024)  # Convert to MB
-            
+
             # Update UI
             file_name = os.path.basename(filename)
             self.status_label.config(text=f"Loaded: {file_name}")
@@ -1186,4 +1186,3 @@ Features:
                 return
                 
         self.root.destroy()
-
