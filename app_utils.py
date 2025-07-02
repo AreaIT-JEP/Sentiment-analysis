@@ -15,6 +15,7 @@ import pandas as pd
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
+import re  # aggiungi per riconoscere URL Google Sheets
 
 # --- NLTK and Cache Setup ---
 # Ensure VADER lexicon is downloaded
@@ -103,6 +104,10 @@ class SentimentAnalysisApp:
 
         self.btn_open = ttk.Button(file_frame, text="Open CSV", command=self.open_file)
         self.btn_open.pack(side=tk.LEFT, padx=5, pady=5)
+
+        # Bottone per Google Sheet
+        self.btn_open_gsheet = ttk.Button(file_frame, text="Open Google Sheet", command=self.open_google_sheet)
+        self.btn_open_gsheet.pack(side=tk.LEFT, padx=5, pady=5)
 
         self.btn_analyze = ttk.Button(file_frame, text="Analyze", command=self.start_analysis, state=tk.DISABLED)
         self.btn_analyze.pack(side=tk.LEFT, padx=5, pady=5)
@@ -648,104 +653,100 @@ class SentimentAnalysisApp:
         self.canvas.configure(bg=theme['bg'])
 
     def open_file(self, filepath=None):
-        """Opens a CSV file and displays a preview.
-           If filepath is provided, opens that file. Otherwise, opens a file dialog.
-        """
+        """Opens a CSV, Excel, or Google Sheets file and displays a preview."""
         if filepath is None:
             filename = filedialog.askopenfilename(
-                title="Select CSV file",
-                filetypes=[('CSV Files', '*.csv'), ('All Files', '*.*')]
+                title="Select file",
+                filetypes=[
+                    ('All Supported', '*.csv;*.xls;*.xlsx;*.xlsm;*.ods'),
+                    ('CSV Files', '*.csv'),
+                    ('Excel Files', '*.xls;*.xlsx;*.xlsm;*.ods'),
+                    ('All Files', '*.*')
+                ]
             )
         else:
             filename = filepath
 
+        # Se l'utente preme Annulla, esci subito senza chiedere altro
         if not filename:
             print("No file selected.")
             return
+
+        # Google Sheets: se l'utente inserisce un URL invece di un file
+        if not filename:
+            # Chiedi se vuole caricare da Google Sheets
+            if messagebox.askyesno("Google Sheets", "Vuoi caricare un file da Google Sheets tramite URL?"):
+                url = tk.simpledialog.askstring("Google Sheets URL", "Incolla qui l'URL del Google Sheet (deve essere pubblico o condiviso):")
+                if url:
+                    filename = url
+                else:
+                    return
+            else:
+                print("No file selected.")
+                return
 
         try:
             self.clear_results()
             self.preview_tree.delete(*self.preview_tree.get_children())
 
-            if not os.path.isfile(filename):
-                raise FileNotFoundError("The selected file does not exist.")
+            # --- INIZIO MODIFICA: gestione tipi di file ---
+            is_gsheet = isinstance(filename, str) and (
+                filename.startswith("http") and "docs.google.com/spreadsheets" in filename
+            )
+            ext = os.path.splitext(filename)[1].lower()
 
-            try:
+            if is_gsheet:
+                # Estrai l'ID del foglio e costruisci l'URL CSV esportabile
+                match = re.search(r"/d/([a-zA-Z0-9-_]+)", filename)
+                if not match:
+                    raise ValueError("URL Google Sheets non valido.")
+                sheet_id = match.group(1)
+                export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+                self.full_review_data = pd.read_csv(export_url)
+            elif ext in [".xls", ".xlsx", ".xlsm", ".ods"]:
+                self.full_review_data = pd.read_excel(filename)
+            elif ext == ".csv":
                 self.full_review_data = pd.read_csv(filename, encoding='utf-8', on_bad_lines='skip')
+            else:
+                # Prova a caricare come CSV, poi come Excel
+                try:
+                    self.full_review_data = pd.read_csv(filename, encoding='utf-8', on_bad_lines='skip')
+                except Exception:
+                    self.full_review_data = pd.read_excel(filename)
+            # --- FINE MODIFICA ---
 
-                review_title_col_name = self._find_column_name(
-                    self.full_review_data.columns,
-                    ["review title", "title",
-                     self.full_review_data.columns[0] if len(self.full_review_data.columns) > 0 else '']
-                )
-                review_text_col_name = self._find_column_name(
-                    self.full_review_data.columns,
-                    ["review", "review text", "text",
-                     self.full_review_data.columns[1] if len(self.full_review_data.columns) > 1 else '']
-                )
-                star_col_name = self._find_column_name(
-                    self.full_review_data.columns,
-                    ["star", "rating",
-                     self.full_review_data.columns[2] if len(self.full_review_data.columns) > 2 else '']
-                )
-                product_col_name = self._find_column_name(
-                    self.full_review_data.columns,
-                    ["product", "product name",
-                     self.full_review_data.columns[3] if len(self.full_review_data.columns) > 3 else '']
-                )
+            review_title_col_name = self._find_column_name(
+                self.full_review_data.columns,
+                ["review title", "title",
+                 self.full_review_data.columns[0] if len(self.full_review_data.columns) > 0 else '']
+            )
+            review_text_col_name = self._find_column_name(
+                self.full_review_data.columns,
+                ["review", "review text", "text",
+                 self.full_review_data.columns[1] if len(self.full_review_data.columns) > 1 else '']
+            )
+            star_col_name = self._find_column_name(
+                self.full_review_data.columns,
+                ["star", "rating",
+                 self.full_review_data.columns[2] if len(self.full_review_data.columns) > 2 else '']
+            )
+            product_col_name = self._find_column_name(
+                self.full_review_data.columns,
+                ["product", "product name",
+                 self.full_review_data.columns[3] if len(self.full_review_data.columns) > 3 else '']
+            )
 
-                display_columns = []
-                if review_title_col_name: display_columns.append(review_title_col_name)
-                if review_text_col_name: display_columns.append(review_text_col_name)
-                if star_col_name: display_columns.append(star_col_name)
-                if product_col_name: display_columns.append(product_col_name)
+            # Visualizza tutte le colonne e tutte le righe nella Preview
+            display_columns = list(self.full_review_data.columns)
+            self.preview_tree["columns"] = display_columns
+            for col in display_columns:
+                self.preview_tree.heading(col, text=col)
+                self.preview_tree.column(col, width=200, minwidth=80)
 
-                if not display_columns:
-                    if len(self.full_review_data.columns) >= 4:
-                        display_columns = list(self.full_review_data.columns[:4])
-                    else:
-                        display_columns = list(self.full_review_data.columns)
-                    messagebox.showwarning(
-                        "Column Warning",
-                        "Could not find 'Review Title', 'Review', 'Star', or 'Product' columns by common names. "
-                        "Displaying first available columns. Please ensure your CSV has relevant headers for full functionality."
-                    )
-
-                self.preview_tree["columns"] = display_columns
-                for col in display_columns:
-                    self.preview_tree.heading(col, text=col)
-                    if col.lower() in [review_text_col_name.lower(),
-                                       review_title_col_name.lower() if review_title_col_name else '']:
-                        self.preview_tree.column(col, width=300, minwidth=150)
-                    else:
-                        self.preview_tree.column(col, width=100, minwidth=80)
-
-                for i, (_, row) in enumerate(self.full_review_data.head(10).iterrows()):
-                    values_for_tree = [str(row[col]) if col in row else '' for col in display_columns]
-                    self.preview_tree.insert("", "end", values=values_for_tree)
-
-            except Exception as e:
-                messagebox.showwarning("CSV Read Warning",
-                                       f"Pandas failed to read CSV, attempting fallback mode for preview. Error: {e}")
-                self.full_review_data = []
-
-                with open(filename, 'r', encoding='utf-8', errors='replace') as f:
-                    csv_reader = csv.reader(f)
-                    header = next(csv_reader, None)
-
-                    if not header:
-                        raise ValueError("CSV file is empty or has no header.")
-
-                    self.preview_tree["columns"] = header
-                    for col in header:
-                        self.preview_tree.heading(col, text=col)
-                        self.preview_tree.column(col, width=150, minwidth=80)
-
-                    for i, row_list in enumerate(csv_reader):
-                        row_dict = {header[j]: row_list[j] if j < len(row_list) else '' for j in range(len(header))}
-                        self.full_review_data.append(row_dict)
-                        if i < 10:
-                            self.preview_tree.insert("", "end", values=row_list)
+            # Mostra tutte le righe (recensioni) nella Preview
+            for _, row in self.full_review_data.iterrows():
+                values_for_tree = [str(row[col]) if col in row else '' for col in display_columns]
+                self.preview_tree.insert("", "end", values=values_for_tree)
 
             file_size = os.path.getsize(filename) / (1024 * 1024)
 
@@ -1393,3 +1394,10 @@ Features:
                 return
 
         self.root.destroy()
+
+    def open_google_sheet(self):
+        """Apre una finestra per inserire l'URL di un Google Sheet e lo carica."""
+        import tkinter.simpledialog
+        url = tk.simpledialog.askstring("Google Sheets URL", "Incolla qui l'URL del Google Sheet (deve essere pubblico o condiviso):")
+        if url:
+            self.open_file(url)
